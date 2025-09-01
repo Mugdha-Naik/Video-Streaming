@@ -2,7 +2,7 @@
 class apiError extends Error {
     //creating a constructor
 
-    constructor(status, message = "Something went wrong", errors = [], stack = ""){
+    constructor(statusCode, message = "Something went wrong", errors = [], stack = ""){
         super(message)
         this.statusCode = statusCode
         this.data = null

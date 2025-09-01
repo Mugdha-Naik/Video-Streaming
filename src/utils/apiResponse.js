@@ -8,3 +8,5 @@ class apiResponse {
         // and we are currently writing code for response
     }
 }
+
+export {apiResponse} 
