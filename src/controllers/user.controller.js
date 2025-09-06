@@ -301,10 +301,151 @@ const refreshAccessToken = asyncHandler(async(req, res) => {
 
 })
 
+// a custom controller that changes the user's current password
+
+const changeCurrentUserPassword = asyncHandler(async(req, res) => {
+    const {oldPassword, newPassword, confirmPassword} = req.body
+
+    // if(!(newPassword === confirmPassword)){
+    //     throw new apiError(401, "incorrect password while updating password")
+    // }
+
+    const user = await User.findById(req.user?._id)
+    const isPasswordCorrect = user.isPasswordCorrect(oldPassword)
+
+    if(!isPasswordCorrect){
+        throw new apiError(400, "Invalid old password");
+    }
+
+    user.password = newPassword
+    // the program enters in the user.model.js section
+    // there is a save middleware there that is executed when we want to save something
+    // before saving, out pre hook is execute, that is basically a middleware that is executed before the rest of the program
+    // therefore whenever we update the password, our new password is always hashed first 
+    await user.save({validateBeforeSave: false});
+
+    return res
+    .status(200)
+    .json(new apiResponse(200, {}, "Password is updated successfully"))
+
+
+
+}) 
+
+const getCurrentUser = asyncHandler(async(req, res) => {
+   return res.status(200)
+   .json(200, req.user, "current user fetched successfully");
+   // we had already stored the user details in req.user in out auth.middleware
+})
+
+
+// things that we let our user change 
+const updateAccountDetails = asyncHandler(async(req, res) => {
+    const {fullname, email} = req.body;
+
+    if(!fullname || !email){
+        throw new apiError(400, "fullname and email is requried")
+    }
+
+    const user = User.findByIdAndUpdate(
+        req.user?._id,
+        {
+            // mongodb operators
+            $set:{
+                fullname: fullname,
+                email: email
+                // or
+                // fullname,
+                // email
+            }
+        },
+        {new: true}
+        // this third object is true returns the info after the user is updated
+    ).select("-password")
+
+    return res
+    .status(200)
+    .json(new apiResponse(200, user, "account detailed updated successfully"));
+})
+
+// updating files only if the user changes file, not updating the whole user
+// Avatar image files updating 
+const updateUserAvatar = asyncHandler(async(req, res) => {
+    const avatarLocalPath = req.file?.path
+    if(!avatarLocalPath){
+        new apiError(400, "Avatar file is missing");
+    }
+
+    // takes a path as argument
+    const avatar = uploadOnCloudinary(avatarLocalPath)
+
+    if(!avatar.url){
+        throw new apiError(400, "Avatar not in cloudinary");
+    }
+
+    const user = await User.findByIdAndUpdate(
+        req.user?._id,
+        {
+            $set:{
+                avatar: avatar.url
+            }
+        },
+        {new: true}
+    ).select("-password")
+
+    return res
+    .status(200)
+    .json(
+        new apiResponse(200, user, "avatar image updated successfully")
+    )
+})
+
+// updating files of cover image
+const updateUserCoverImage = asyncHandler(async(req, res) => {
+    // req.file comes from multer
+    const coverImageLocalPath = req.file?.path
+    if(!coverImageLocalPath){
+        throw new apiError(400, "CoverImage is missing");
+    }
+
+    const coverImage = uploadOnCloudinary(coverImageLocalPath);
+    if(!coverImage.url){
+        throw new apiError(400, "CoverImage not in cloudinary")
+    } 
+
+    const user = await User.findByIdAndUpdate(
+        req.user?._id,
+        {
+            $set: {
+                coverImage: coverImage.url
+            },
+            
+        },
+        { 
+            new: true
+        }
+
+    ).select("-password")
+
+    return res
+    .status(200)
+    .json(
+        new apiResponse(200, user, "coverImage uploaded successfully")
+    )
+})
 
 export {
     registerUser,
     loginUser,
     logoutUser,
-    refreshAccessToken
+    refreshAccessToken,
+    changeCurrentUserPassword,
+    getCurrentUser,
+    updateAccountDetails,
+    updateUserAvatar,
+    updateUserCoverImage
 };
+
+// ADVISE := whenever you let user update any file, you can create a seperate controller for that
+// so when the user lets say updates any file(image or anything) then the whole user(username, email, password etc) is not updated again and again
+// when the files are updated user hits the endpoint
