@@ -1,4 +1,4 @@
 # a project for vieo streaming
 
-This is a videp series on backend with js
+This is a video series on backend with js
 
