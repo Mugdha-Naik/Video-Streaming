@@ -1,9 +1,11 @@
 import mongoose, {Schema} from "mongoose";
 import jwt from 'jsonwebtoken'
 
+import bcrypt from "bcrypt";
+
 // jwt is a bearer token
 // whoever has the token can acces data
-import bcrypt from 'bcrypt'
+
 const userSchema = new Schema(
     {
         username: {
