@@ -3,7 +3,7 @@ import {apiError} from '../utils/apiError.js'
 import {User} from '../models/user.models.js'
 import {uploadOnCloudinary} from '../utils/cloudinary.js'
 import { apiResponse } from '../utils/apiResponse.js'
-import {jwt} from 'jsonwebtoken'
+import jwt from 'jsonwebtoken'
 import { use } from 'bcrypt/promises.js'
 
 // creating a method for generating access and refresh tokens
@@ -311,7 +311,11 @@ const changeCurrentUserPassword = asyncHandler(async(req, res) => {
     // }
 
     const user = await User.findById(req.user?._id)
-    const isPasswordCorrect = user.isPasswordCorrect(oldPassword)
+
+    if(!user){
+        throw new apiError(400, "User not found")
+    }
+    const isPasswordCorrect = await user.isPasswordCorrect(oldPassword)
 
     if(!isPasswordCorrect){
         throw new apiError(400, "Invalid old password");
@@ -334,7 +338,7 @@ const changeCurrentUserPassword = asyncHandler(async(req, res) => {
 
 const getCurrentUser = asyncHandler(async(req, res) => {
    return res.status(200)
-   .json(200, req.user, "current user fetched successfully");
+   .json(new apiResponse(200, req.user, "current user fetched successfully"));
    // we had already stored the user details in req.user in out auth.middleware
 })
 
@@ -347,7 +351,7 @@ const updateAccountDetails = asyncHandler(async(req, res) => {
         throw new apiError(400, "fullname and email is requried")
     }
 
-    const user = User.findByIdAndUpdate(
+    const user = await User.findByIdAndUpdate(
         req.user?._id,
         {
             // mongodb operators
@@ -376,7 +380,7 @@ const updateUserAvatar = asyncHandler(async(req, res) => {
         new apiError(400, "Avatar file is missing");
     }
 
-    // takes a path as argument
+    // takes a path as argument -> new avatar added
     const avatar = uploadOnCloudinary(avatarLocalPath)
 
     if(!avatar.url){
@@ -398,6 +402,10 @@ const updateUserAvatar = asyncHandler(async(req, res) => {
     .json(
         new apiResponse(200, user, "avatar image updated successfully")
     )
+
+    // after setting the avatar img let us also delete the img from cloudinary
+    // A UTILITY FUNCTION FOR DELETING IMG OF AVATAR
+
 })
 
 // updating files of cover image
@@ -434,6 +442,150 @@ const updateUserCoverImage = asyncHandler(async(req, res) => {
     )
 })
 
+// After Pipelines, we will get things to show on the user's ui
+const getUserChannelProfile = asyncHandler(async(req, res) => {
+    const {username} = req.params
+
+    if(!username?.trim()){
+        throw new apiError(400, "Username is missing...");
+    }
+
+    // now username exists obviously
+
+    // getting each user data and then getting their profile seperately can become time consuming
+    // we can use aggregation pipelines, it minimizes the time and filters out records as per our needs
+    // and now the new records become our main record for further execution
+    // so we dont need to visit the old records again and again for filtering them
+    // it will be already filtered as per our needs
+    const channel = await User.aggregate([{
+        $match:{
+            username: username?.toLowerCase()
+        }
+    },
+    {
+        $lookup:{
+            from: "subscriptions",
+            localField: "_id",
+            foreignField: "channel",
+            as: "subscribers"
+        }
+    }, 
+    {
+        $lookup: {
+            from: "subscriptions",
+            localField: "_id",
+            foreignField: "subscriber",
+            as: "subscribedTo"
+        }
+    },
+
+    // it adds extra fields in the db, like here count of my subscribers and the channles that i have subscribedTo
+    {
+        $addFields: {
+            subscribersCount: {
+                $size: "$subscribers",
+            },
+            channelsSubscribedToCount:{
+                $size: "$subscribedTo"
+            },
+            isSubscribed:{
+                $cond: {
+                    if:{
+                        $in:[req.user?._id, "$subscribers.subscriber"]
+                    },
+                    then: true,
+                    else: false
+                }
+            }
+        }
+    }, 
+
+    // project sari values nahi deta bas kuch selected chize deta hai
+    {
+        $project: {
+            fullname: 1,
+            username: 1,
+            subscribersCount: 1,
+            channelsSubscribedToCount: 1,
+            isSubscribed: 1,
+            avatar: 1,
+            coverImage: 1,
+            email: 1
+        }
+    }])
+
+    if(!channel?.length){
+        throw new apiError(404, "channel does not exist");
+    }
+
+    // for frontend
+    return res
+    .status(200)
+    .json(
+        new apiResponse(200, channel[0], "User channel fetched successfully")
+    )
+})
+
+// to get watch history of the user
+const getWatchHistory = asyncHandler(async(req, res) => {
+    const user = await User.aggregate([
+        {
+            $match: {
+                _id: new mongoose.Types.ObjectId(req.user._id)
+            }
+        }, 
+        {
+            $lookup: {
+                from: "videos",
+                localField: "watchHistory",
+                foreignField: "_id",
+                as: "watchHisory",
+                pipeline: [
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "owner",
+                            foreignField: "_id",
+                            as: "owner", 
+
+                            pipeline: [
+                                {
+                                    $project: {
+                                        fullname: 1,
+                                        username: 1,
+                                        avatar: 1
+                                    }
+                                }
+                            ]
+                        }
+                    },
+
+                    // structuring the data, for frontend (not compulsory)
+                    {
+                        $addFields: {
+                            owner: {
+                                $first: "$owner"
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ])
+
+    // returning data to frontend
+    return res
+    .status(200)
+    .json(
+        new apiResponse(
+            200,
+            user[0].watchHistory,
+            "watch history fetched successfully..."
+        )
+    )
+})
+
+
 export {
     registerUser,
     loginUser,
@@ -443,7 +595,9 @@ export {
     getCurrentUser,
     updateAccountDetails,
     updateUserAvatar,
-    updateUserCoverImage
+    updateUserCoverImage,
+    getUserChannelProfile,
+    getWatchHistory
 };
 
 // ADVISE := whenever you let user update any file, you can create a seperate controller for that
